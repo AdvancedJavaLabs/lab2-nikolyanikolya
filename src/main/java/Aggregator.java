@@ -32,9 +32,7 @@ public class Aggregator {
 
     ch.queueDeclare(AGGREGATOR_QUEUE, true, false, false, null);
 
-    // ограничить количество сообщений, не подтверждённых одновременно
-    ch.basicQos(N_AGGREGATORS, true);
-    ch.basicQos(1, false);
+    ch.basicQos(N_AGGREGATORS);
 
     System.out.println("Waiting for messages...");
     DeliverCallback deliverCallback = (consumerTag, delivery) -> {

@@ -35,16 +35,13 @@ public class Worker {
     ch.queueDeclare(AGGREGATOR_QUEUE, true, false, false, null);
     ch.queueBind(AGGREGATOR_QUEUE, AGGREGATOR_EXCHANGE, AGGREGATOR_ROUTING_KEY);
 
-    // ограничить количество сообщений, не подтверждённых одновременно
-    ch.basicQos(N_WORKERS, true);
-    ch.basicQos(1, false);
+    ch.basicQos(N_WORKERS);
 
     System.out.println("Waiting for messages...");
     DeliverCallback deliverCallback = (consumerTag, delivery) -> {
       String body = new String(delivery.getBody(), StandardCharsets.UTF_8);
       System.out.println("Received: " + body);
       es.submit(() -> {
-        // симуляция обработки
         AMQP.BasicProperties props = new AMQP.BasicProperties.Builder()
           .deliveryMode(2) // persistent
           .contentType("application/json")
