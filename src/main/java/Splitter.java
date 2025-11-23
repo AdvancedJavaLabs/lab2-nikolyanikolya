@@ -4,20 +4,25 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 public class Splitter {
   private static final String SENTENCE_END_REGEX = "[.?!]\\s*";
   private static final Pattern SENTENCE_END = Pattern.compile(SENTENCE_END_REGEX);
-  private static final Integer SENTENCES_IN_ONE_BLOCK = 500;
+  private static final Integer SENTENCES_IN_ONE_BLOCK = 1000;
 
-  public static Set<Long> split(String filename) throws Exception {
+  public static Set<Long> split(String filename, ExecutorService pool) throws Exception {
     boolean previousSentenceUnfinished = false;
     ArrayList<String> sentences = new ArrayList<>();
-    Set<Long> taskIds = new HashSet<>();
+    List<CompletableFuture<Long>> futures = new ArrayList<>();
 
     try (BufferedReader br = Files.newBufferedReader(Path.of(filename), UTF_8)) {
       var line = br.readLine();
@@ -45,7 +50,14 @@ public class Splitter {
               sentences.add(s);
             }
             if (sentences.size() >= SENTENCES_IN_ONE_BLOCK && SENTENCE_END.matcher(s).find()) {
-              taskIds.add(Producer.submit(String.join(" ", sentences)));
+              var finalSentences = new ArrayList<>(sentences);
+              futures.add(CompletableFuture.supplyAsync(() -> {
+                try {
+                  return Producer.submit(String.join(" ", finalSentences));
+                } catch (Exception e) {
+                  throw new RuntimeException(e);
+                }
+              }, pool));
               sentences.clear();
             }
           }
@@ -56,9 +68,8 @@ public class Splitter {
         }
       }
     }
-
+    Set<Long> taskIds = new HashSet<>(futures.stream().map(CompletableFuture::join).toList());
     taskIds.add(Producer.submit(String.join(" ", sentences)));
-    sentences.clear();
 
     return taskIds;
   }

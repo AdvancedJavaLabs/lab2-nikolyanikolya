@@ -11,21 +11,22 @@ public class Main {
   public static void main(String[] args) throws Exception {
     var startTime = System.currentTimeMillis();
     var lexer = new LexiconSentiment("positive-words.txt", "negative-words.txt");
-    Set<Long> taskIds = Splitter.split("war_peace_plain.txt");
     int N = Runtime.getRuntime().availableProcessors();
+    ExecutorService pool = Executors.newFixedThreadPool(N);
+    Set<Long> taskIds = Splitter.split("war_peace_plain.txt", pool);
     var configProvider = new MqConfigProvider();
     ConnectionFactory factory = configProvider.connectionFactory();
-    ExecutorService pool = Executors.newFixedThreadPool(N);
     factory.setSharedExecutor(pool);
     Connection aggregatorConnection = factory.newConnection();
     Connection workersConnection = factory.newConnection();
-    for (int i = 0; i < N - 1; i++) {
+    pool.submit(() -> {
       try {
-        Worker.run(workersConnection, lexer, args);
+        Worker.run(N, workersConnection, lexer, args);
       } catch (IOException | TimeoutException e) {
         throw new RuntimeException(e);
       }
-    }
+    });
+
     Aggregator.aggregate(aggregatorConnection, taskIds);
 
     aggregatorConnection.addShutdownListener((e) -> {

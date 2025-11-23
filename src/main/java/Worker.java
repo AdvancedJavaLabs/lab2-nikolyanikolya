@@ -18,7 +18,7 @@ public class Worker {
   private static final String SENTENCES_DELIMITERS_REGEX = "[.?!]\\s*";
   private static final Integer TOP_N = 50;
 
-  public static void run(Connection conn, LexiconSentiment lexer, String[] args) throws IOException, TimeoutException {
+  public static void run(int N, Connection conn, LexiconSentiment lexer, String[] args) throws IOException, TimeoutException {
     var replacements = new ArrayList<Replacement>();
     for (int i = 0; i < args.length - 1; i++) {
       replacements.add(new Replacement(
