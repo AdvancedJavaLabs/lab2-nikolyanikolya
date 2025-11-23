@@ -11,46 +11,34 @@ public class Aggregator {
   private static final String AGGREGATOR_QUEUE = "results_queue";
   private static final String AGGREGATOR_ROUTING_KEY = "partial_result";
 
-  private static final Integer N_AGGREGATORS = 1;
-
   public static void main(String[] args) throws IOException, TimeoutException {
     var storage = new Storage();
     var configProvider = new MqConfigProvider();
     ConnectionFactory factory = configProvider.connectionFactory();
-    ExecutorService es = Executors.newFixedThreadPool(N_AGGREGATORS);
     Connection conn = factory.newConnection();
     Channel ch = conn.createChannel();
-    Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-      try {
-        ch.close();
-        conn.close();
-        es.shutdown();
-      } catch (IOException | TimeoutException e) {
-        throw new RuntimeException(e);
-      }
-    }));
 
+    ch.exchangeDeclare(AGGREGATOR_EXCHANGE, "direct", true);
     ch.queueDeclare(AGGREGATOR_QUEUE, true, false, false, null);
+    ch.queueBind(AGGREGATOR_QUEUE, AGGREGATOR_EXCHANGE, AGGREGATOR_ROUTING_KEY);
 
-    ch.basicQos(N_AGGREGATORS);
+    ch.basicQos(1);
 
-    System.out.println("Waiting for messages...");
+    System.out.println("Aggregator is waiting for messages...");
     DeliverCallback deliverCallback = (consumerTag, delivery) -> {
+      String body = new String(delivery.getBody(), StandardCharsets.UTF_8);
       try {
-        String body = new String(delivery.getBody(), StandardCharsets.UTF_8);
-        System.out.println("Received: " + body);
         storage.save(body);
         ch.basicAck(delivery.getEnvelope().getDeliveryTag(), false);
-        System.out.println("Processed");
+        System.out.printf("Task %s was processed by Aggregator\n", body);
       } catch (Exception e) {
-        System.out.println("Failed to process");
+        System.out.printf("Failed to process task %s by Aggregator\n", body);
         ch.basicNack(delivery.getEnvelope().getDeliveryTag(), false, true);
+        throw new RuntimeException(e);
       }
     };
 
-    boolean autoAck = false;
-    ch.basicConsume(AGGREGATOR_QUEUE, autoAck, deliverCallback, consumerTag -> {
-    });
+    ch.basicConsume(AGGREGATOR_QUEUE, false, deliverCallback, consumerTag -> {});
     System.out.println("Aggregator running, press CTRL+C to stop it");
   }
 }
