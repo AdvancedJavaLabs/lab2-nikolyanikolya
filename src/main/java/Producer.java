@@ -1,14 +1,18 @@
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rabbitmq.client.AMQP;
 import com.rabbitmq.client.Channel;
 import com.rabbitmq.client.Connection;
 import com.rabbitmq.client.ConnectionFactory;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class Producer {
   private static final String EXCHANGE = "workers_exchange";
   private static final String ROUTING_KEY = "task";
+  private static final AtomicLong taskIdGenerator = new AtomicLong(0);
+  private static final ObjectMapper mapper = new ObjectMapper();
 
-  public static void main(String[] args) throws Exception {
+  public static Long submit(String block) throws Exception {
     var configProvider = new MqConfigProvider();
     ConnectionFactory factory = configProvider.connectionFactory();
 
@@ -17,14 +21,17 @@ public class Producer {
 
       ch.exchangeDeclare(EXCHANGE, "direct", true);
 
-      String message = "{\"task\":\"process_this\",\"id\":123}";
+      var taskId = taskIdGenerator.getAndIncrement();
+      Task task = new Task(taskId, block);
+      String message = mapper.writeValueAsString(task);
       AMQP.BasicProperties props = new AMQP.BasicProperties.Builder()
-        .deliveryMode(2) // persistent
+        .deliveryMode(2)
         .contentType("application/json")
         .build();
 
       ch.basicPublish(EXCHANGE, ROUTING_KEY, props, message.getBytes(StandardCharsets.UTF_8));
-      System.out.println("Sent: " + message);
+      System.out.printf("Sent task %s: %s\n", task.id(), message);
+      return taskId;
     }
   }
 }
