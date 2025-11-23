@@ -1,3 +1,6 @@
+import com.rabbitmq.client.Connection;
+import com.rabbitmq.client.ConnectionFactory;
+
 import java.io.IOException;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
@@ -6,19 +9,34 @@ import java.util.concurrent.TimeoutException;
 
 public class Main {
   public static void main(String[] args) throws Exception {
-    Set<Long> taskIds = Splitter.split();
+    var startTime = System.currentTimeMillis();
+    var lexer = new LexiconSentiment("positive-words.txt", "negative-words.txt");
+    Set<Long> taskIds = Splitter.split("war_peace_plain.txt");
     int N = Runtime.getRuntime().availableProcessors();
+    var configProvider = new MqConfigProvider();
+    ConnectionFactory factory = configProvider.connectionFactory();
     ExecutorService pool = Executors.newFixedThreadPool(N);
-    Runtime.getRuntime().addShutdownHook(new Thread(pool::shutdown));
-    for (int i = 0; i < N; i++) {
-      pool.submit(() -> {
-        try {
-          Worker.main(args);
-        } catch (IOException | TimeoutException e) {
-          throw new RuntimeException(e);
-        }
-      });
+    factory.setSharedExecutor(pool);
+    Connection aggregatorConnection = factory.newConnection();
+    Connection workersConnection = factory.newConnection();
+    for (int i = 0; i < N - 1; i++) {
+      try {
+        Worker.run(workersConnection, lexer, args);
+      } catch (IOException | TimeoutException e) {
+        throw new RuntimeException(e);
+      }
     }
-    Aggregator.aggregate(taskIds);
+    Aggregator.aggregate(aggregatorConnection, taskIds);
+
+    aggregatorConnection.addShutdownListener((e) -> {
+      try {
+        workersConnection.close();
+      } catch (IOException ex) {
+        throw new RuntimeException(ex);
+      }
+      pool.shutdown();
+      System.out.printf("total time: %s ms", (System.currentTimeMillis() - startTime));
+      System.exit(0);
+    });
   }
 }

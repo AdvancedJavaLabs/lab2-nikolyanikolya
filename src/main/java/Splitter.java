@@ -12,14 +12,14 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 public class Splitter {
   private static final String SENTENCE_END_REGEX = "[.?!]\\s*";
   private static final Pattern SENTENCE_END = Pattern.compile(SENTENCE_END_REGEX);
+  private static final Integer SENTENCES_IN_ONE_BLOCK = 500;
 
-  public static Set<Long> split() throws Exception {
+  public static Set<Long> split(String filename) throws Exception {
     boolean previousSentenceUnfinished = false;
     ArrayList<String> sentences = new ArrayList<>();
-    int N = 1;
     Set<Long> taskIds = new HashSet<>();
 
-    try (BufferedReader br = Files.newBufferedReader(Path.of("war_peace_plain-test.txt"), UTF_8)) {
+    try (BufferedReader br = Files.newBufferedReader(Path.of(filename), UTF_8)) {
       var line = br.readLine();
       while (line != null) {
         try {
@@ -39,13 +39,13 @@ public class Splitter {
           }
           var containsUnfinishedSentences = endIndex != line.length();
           for (var s : lineSentences) {
-            if (previousSentenceUnfinished) {
+            if (previousSentenceUnfinished && !sentences.isEmpty()) {
               sentences.set(sentences.size() - 1, String.join(" ", sentences.getLast(), s));
             } else {
               sentences.add(s);
             }
-            if (sentences.size() >= N && SENTENCE_END.matcher(s).find()) {
-              taskIds.add(Producer.submit(String.join(".", sentences)));
+            if (sentences.size() >= SENTENCES_IN_ONE_BLOCK && SENTENCE_END.matcher(s).find()) {
+              taskIds.add(Producer.submit(String.join(" ", sentences)));
               sentences.clear();
             }
           }
@@ -56,6 +56,9 @@ public class Splitter {
         }
       }
     }
+
+    taskIds.add(Producer.submit(String.join(" ", sentences)));
+    sentences.clear();
 
     return taskIds;
   }

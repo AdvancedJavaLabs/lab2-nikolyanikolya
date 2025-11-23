@@ -29,10 +29,12 @@ public class Producer {
         .contentType("application/json")
         .build();
 
+      System.out.printf("Task %s with size %s was sent by Producer\n", taskId, block.length());
+
       ch.basicPublish(EXCHANGE, ROUTING_KEY, props, message.getBytes(StandardCharsets.UTF_8));
-      System.out.printf("Sent task %s: %s\n", task.id(), message);
       return taskId;
     }
   }
+
 }
 
