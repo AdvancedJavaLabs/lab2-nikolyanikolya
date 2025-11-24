@@ -12,10 +12,7 @@ public class Producer {
   private static final AtomicLong taskIdGenerator = new AtomicLong(0);
   private static final ObjectMapper mapper = new ObjectMapper();
 
-  public static Long submit(String block) throws Exception {
-    var configProvider = new MqConfigProvider();
-    ConnectionFactory factory = configProvider.connectionFactory();
-
+  public static Long submit(String block, ConnectionFactory factory) throws Exception {
     try (Connection conn = factory.newConnection();
          Channel ch = conn.createChannel()) {
 
@@ -29,7 +26,7 @@ public class Producer {
         .contentType("application/json")
         .build();
 
-      System.out.printf("Task %s with size %s was sent by Producer\n", taskId, block.length());
+      System.out.printf("Task %s with size %s was sent by Producer (thread = %s)\n", taskId, block.length(), Thread.currentThread().getName());
 
       ch.basicPublish(EXCHANGE, ROUTING_KEY, props, message.getBytes(StandardCharsets.UTF_8));
       return taskId;

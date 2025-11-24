@@ -28,7 +28,6 @@ public class Aggregator {
     ch.queueDeclare(AGGREGATOR_QUEUE, true, false, false, null);
     ch.queueBind(AGGREGATOR_QUEUE, AGGREGATOR_EXCHANGE, AGGREGATOR_ROUTING_KEY);
 
-    ch.basicQos(1);
     var statistics = new AtomicReference<TextStatistics>();
 
     System.out.println("Aggregator is waiting for messages...");
@@ -39,14 +38,14 @@ public class Aggregator {
         statistics.set(merge(statistics.get(), paragraphStatistics));
         tasksToWait.remove(paragraphStatistics.taskId());
         ch.basicAck(delivery.getEnvelope().getDeliveryTag(), false);
-        System.out.printf("Task %s was processed by Aggregator\n", paragraphStatistics.taskId());
         if (tasksToWait.isEmpty()) {
-          storage.save(mapper.writeValueAsString(statistics.get()));
+          storage.save("results", mapper.writeValueAsString(statistics.get()));
           ch.basicCancel(consumerTag);
           if (aggregatorConnection.isOpen()) {
             aggregatorConnection.close();
           }
         }
+        System.out.printf("Task %s was processed by Aggregator (thread = %s)\n", paragraphStatistics.taskId(), Thread.currentThread().getName());
       } catch (Exception e) {
         System.out.printf("Failed to proccess task %s by Aggregator\n.", paragraphStatistics.taskId());
         ch.basicNack(delivery.getEnvelope().getDeliveryTag(), false, true);
@@ -63,7 +62,7 @@ public class Aggregator {
         paragraphStatistics.wordsCount(),
         paragraphStatistics.topNFrequentWords(),
         paragraphStatistics.sortedSentences(),
-        paragraphStatistics.sentiments().stream().collect(Collectors.groupingBy(s -> s, Collectors.counting())),
+        sentiments(Map.of(), paragraphStatistics.sentiments()),
         paragraphStatistics.replacements()
       );
     }
@@ -73,38 +72,10 @@ public class Aggregator {
       Comparator.comparingInt(String::length)
     );
     var wordsCount = cur.wordsCount() + paragraphStatistics.wordsCount();
-    var topNFrequentWords =
-      Stream.concat(
-        paragraphStatistics.topNFrequentWords().stream(),
-        cur.topNFrequentWords().stream()
-      )
-        .collect(
-          Collectors.groupingBy(
-            FrequentWord::word, Collectors.summingLong(FrequentWord::count)
-          ))
-        .entrySet()
-        .stream()
-        .map(entry -> new FrequentWord(entry.getKey(), entry.getValue()))
-        .sorted((fw1, fw2) -> fw2.count().compareTo(fw1.count()))
-        .limit(TOP_N)
-        .toList();
+    var topNFrequentWords = frequentWords(cur, paragraphStatistics);
+    var sentiments = sentiments(cur.sentiments(), paragraphStatistics.sentiments());
 
-
-    var paragraphSentiments = paragraphStatistics
-      .sentiments()
-      .stream()
-      .collect(Collectors.groupingBy(s -> s, Collectors.counting()));
-
-    var mergedSentiments = Stream.concat(
-      paragraphSentiments.entrySet().stream(),
-      cur.sentiments().entrySet().stream()
-    ).collect(Collectors.toMap(
-      Map.Entry<String, Long>::getKey,
-      Map.Entry<String, Long>::getValue,
-      Long::sum
-    ));
-
-    return new TextStatistics(wordsCount, topNFrequentWords, sentences, mergedSentiments, cur.replacements());
+    return new TextStatistics(wordsCount, topNFrequentWords, sentences, sentiments, cur.replacements());
   }
 
   public static <T> List<T> merge(List<T> a, List<T> b, Comparator<T> comparator) {
@@ -132,6 +103,38 @@ public class Aggregator {
     }
 
     return merged;
+  }
+
+  private static List<FrequentWord> frequentWords(TextStatistics cur, ParagraphStatistics paragraphStatistics) {
+    return Stream.concat(
+        paragraphStatistics.topNFrequentWords().stream(),
+        cur.topNFrequentWords().stream()
+      )
+      .collect(
+        Collectors.groupingBy(
+          FrequentWord::word, Collectors.summingLong(FrequentWord::count)
+        ))
+      .entrySet()
+      .stream()
+      .map(entry -> new FrequentWord(entry.getKey(), entry.getValue()))
+      .sorted((fw1, fw2) -> fw2.count().compareTo(fw1.count()))
+      .limit(TOP_N)
+      .toList();
+  }
+
+  private static Map<String, Long> sentiments(Map<String, Long> curSentiments, List<String> newSentiments) {
+    var paragraphSentiments = newSentiments
+      .stream()
+      .collect(Collectors.groupingBy(s -> s, Collectors.counting()));
+
+    return Stream.concat(
+      paragraphSentiments.entrySet().stream(),
+      curSentiments.entrySet().stream()
+    ).collect(Collectors.toMap(
+      Map.Entry<String, Long>::getKey,
+      Map.Entry<String, Long>::getValue,
+      Long::sum
+    ));
   }
 }
 

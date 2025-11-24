@@ -1,3 +1,5 @@
+import com.rabbitmq.client.ConnectionFactory;
+
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -8,9 +10,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.regex.Pattern;
-import java.util.stream.Stream;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 
@@ -19,7 +19,7 @@ public class Splitter {
   private static final Pattern SENTENCE_END = Pattern.compile(SENTENCE_END_REGEX);
   private static final Integer SENTENCES_IN_ONE_BLOCK = 1000;
 
-  public static Set<Long> split(String filename, ExecutorService pool) throws Exception {
+  public static Set<Long> split(String filename, ExecutorService pool, ConnectionFactory factory) throws Exception {
     boolean previousSentenceUnfinished = false;
     ArrayList<String> sentences = new ArrayList<>();
     List<CompletableFuture<Long>> futures = new ArrayList<>();
@@ -44,6 +44,9 @@ public class Splitter {
           }
           var containsUnfinishedSentences = endIndex != line.length();
           for (var s : lineSentences) {
+            if (s.isEmpty()) {
+              continue;
+            }
             if (previousSentenceUnfinished && !sentences.isEmpty()) {
               sentences.set(sentences.size() - 1, String.join(" ", sentences.getLast(), s));
             } else {
@@ -53,7 +56,7 @@ public class Splitter {
               var finalSentences = new ArrayList<>(sentences);
               futures.add(CompletableFuture.supplyAsync(() -> {
                 try {
-                  return Producer.submit(String.join(" ", finalSentences));
+                  return Producer.submit(String.join("", finalSentences), factory);
                 } catch (Exception e) {
                   throw new RuntimeException(e);
                 }
@@ -67,9 +70,13 @@ public class Splitter {
           throw new RuntimeException(e);
         }
       }
+    } catch (IOException e) {
+      System.out.println(String.format("IO error: %s", e.getMessage()));
+      throw new RuntimeException(e);
     }
     Set<Long> taskIds = new HashSet<>(futures.stream().map(CompletableFuture::join).toList());
-    taskIds.add(Producer.submit(String.join(" ", sentences)));
+    taskIds.add(Producer.submit(String.join(" ", sentences), factory));
+    sentences.clear();
 
     return taskIds;
   }

@@ -1,5 +1,6 @@
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rabbitmq.client.*;
+import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -18,7 +19,7 @@ public class Worker {
   private static final String SENTENCES_DELIMITERS_REGEX = "[.?!]\\s*";
   private static final Integer TOP_N = 50;
 
-  public static void run(int N, Connection conn, LexiconSentiment lexer, String[] args) throws IOException, TimeoutException {
+  public static void run(Connection conn, LexiconSentiment lexer, String[] args) throws IOException, TimeoutException {
     var replacements = new ArrayList<Replacement>();
     for (int i = 0; i < args.length - 1; i++) {
       replacements.add(new Replacement(
@@ -27,7 +28,6 @@ public class Worker {
       ));
     }
     Channel ch = conn.createChannel();
-    ch.basicQos(1);
 
     ch.exchangeDeclare(EXCHANGE, "direct", true);
     ch.queueDeclare(QUEUE, true, false, false, null);
@@ -42,20 +42,11 @@ public class Worker {
       for (var r: replacements) {
         text = text.replaceAll(r.from(), r.to());
       }
-      var sentences = Arrays.stream(text.split(SENTENCES_DELIMITERS_REGEX))
-        .sorted(Comparator.comparingInt(String::length).reversed())
-        .toList();
+      var sentences = sortedSentences(text);
       var words = task.text().split(WORD_DELIMITERS_REGEX);
       var wordsCount = Arrays.stream(words).count();
 
-      var topNFrequentWords = Arrays.stream(words)
-        .collect(Collectors.groupingBy(s -> s, Collectors.counting()))
-        .entrySet()
-        .stream()
-        .map(entry -> new FrequentWord(entry.getKey(), entry.getValue()))
-        .sorted((w1, w2) -> Long.compare(w2.count(), w1.count()))
-        .limit(TOP_N)
-        .toList();
+      var topNFrequentWords = frequentWords(words);
 
       var sentiment = lexer.analyzeSentiment(text);
       // var sentiments = NlpProcessor.analyze(text);
@@ -79,7 +70,7 @@ public class Worker {
           props,
           mapper.writeValueAsBytes(paragraphStatistics)
         );
-        System.out.printf("Task %s was processed by %s\n", task.id(), Thread.currentThread().getName());
+        System.out.printf("Task %s was processed by Worker (thread = %s)\n", task.id(), Thread.currentThread().getName());
         ch.basicAck(delivery.getEnvelope().getDeliveryTag(), false);
       } catch (IOException e) {
         System.out.printf("Failed to process task %s by %s\n", task.id(), Thread.currentThread().getName());
@@ -90,6 +81,26 @@ public class Worker {
 
     ch.basicConsume(QUEUE, false, deliverCallback, consumerTag -> {});
     System.out.printf("Worker %s is waiting for messages...\n", Thread.currentThread().getName());
+  }
+
+  @NotNull
+  private static List<String> sortedSentences(String text) {
+    return Arrays.stream(text.split(SENTENCES_DELIMITERS_REGEX))
+      .sorted(Comparator.comparingInt(String::length).reversed())
+      .filter(s -> !s.isEmpty())
+      .toList();
+  }
+
+  @NotNull
+  private static List<FrequentWord> frequentWords(String[] words) {
+    return Arrays.stream(words)
+      .collect(Collectors.groupingBy(s -> s, Collectors.counting()))
+      .entrySet()
+      .stream()
+      .map(entry -> new FrequentWord(entry.getKey(), entry.getValue()))
+      .sorted((w1, w2) -> Long.compare(w2.count(), w1.count()))
+      .limit(TOP_N)
+      .toList();
   }
 
   private static String capitalized(String source) {

@@ -1,34 +1,39 @@
 import com.rabbitmq.client.Connection;
 import com.rabbitmq.client.ConnectionFactory;
 
-import java.io.IOException;
+import java.io.*;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.TimeoutException;
 
 public class Main {
+
   public static void main(String[] args) throws Exception {
+    var maxN = Runtime.getRuntime().availableProcessors();
+
+    for (int i = 1; i <= maxN; i++) {
+      File file = new File(String.format("%s/%s.txt", "time-metrics", i));
+      System.setErr(new PrintStream(file));
+      launch(i, "war_peace_plain.txt", args);
+    }
+
+    // generateData("generated-texts", args);
+  }
+
+  public static void launch(int N, String fileName, String[] args) throws Exception {
     var startTime = System.currentTimeMillis();
     var lexer = new LexiconSentiment("positive-words.txt", "negative-words.txt");
-    int N = Runtime.getRuntime().availableProcessors();
     ExecutorService pool = Executors.newFixedThreadPool(N);
-    Set<Long> taskIds = Splitter.split("war_peace_plain.txt", pool);
+
     var configProvider = new MqConfigProvider();
     ConnectionFactory factory = configProvider.connectionFactory();
     factory.setSharedExecutor(pool);
     Connection aggregatorConnection = factory.newConnection();
     Connection workersConnection = factory.newConnection();
-    pool.submit(() -> {
-      try {
-        Worker.run(N, workersConnection, lexer, args);
-      } catch (IOException | TimeoutException e) {
-        throw new RuntimeException(e);
-      }
-    });
-
-    Aggregator.aggregate(aggregatorConnection, taskIds);
-
     aggregatorConnection.addShutdownListener((e) -> {
       try {
         workersConnection.close();
@@ -36,8 +41,39 @@ public class Main {
         throw new RuntimeException(ex);
       }
       pool.shutdown();
-      System.out.printf("total time: %s ms", (System.currentTimeMillis() - startTime));
-      System.exit(0);
+      // System.exit(0);
     });
+
+    Set<Long> taskIds = Splitter.split(fileName, pool, factory);
+    Worker.run(workersConnection, lexer, args);
+    Aggregator.aggregate(aggregatorConnection, taskIds);
+
+    while (aggregatorConnection.isOpen()) {}
+    System.err.printf("total time: %s ms", (System.currentTimeMillis() - startTime));
+  }
+
+  private static void generateData(String dirName, String[] args) throws Exception {
+    var maxSizeInMb = 64;
+    for (int i = 1; i <= maxSizeInMb; i*=2) {
+      var file = new File(String.format("%s/%s-MB.txt", dirName, i));
+      System.setErr(new PrintStream(String.format("data-metrics/%s-Mb.txt", i)));
+      try (
+        FileWriter fw = new FileWriter(file);
+        FileReader fr = new FileReader("war_peace_plain.txt");
+        BufferedWriter bw = new BufferedWriter(fw);
+        BufferedReader br = new BufferedReader(fr);
+      ) {
+        var line = br.readLine();
+        var size = 0;
+        while (line != null && size < i * 1024 * 1024)  {
+          size += line.getBytes(StandardCharsets.UTF_8).length;
+          bw.write(line);
+          bw.newLine();
+          bw.flush();
+          line = br.readLine();
+        }
+        launch(Runtime.getRuntime().availableProcessors(), String.format("%s/%s", dirName, file.getName()), args);
+      }
+    }
   }
 }
