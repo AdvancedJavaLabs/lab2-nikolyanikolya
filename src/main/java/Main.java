@@ -42,7 +42,7 @@ public class Main {
 
     Set<Long> taskIds = Splitter.split(fileName, pool);
     for (int i = 0; i < N; i++) {
-      Worker.run(workersConnection, lexer, args);
+      Worker.run(i, workersConnection, lexer, args);
     }
     Aggregator.aggregate(aggregatorConnection, taskIds);
 

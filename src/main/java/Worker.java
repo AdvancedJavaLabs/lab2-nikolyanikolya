@@ -25,7 +25,7 @@ public class Worker {
   private static final String SENTENCES_DELIMITERS_REGEX = "[.?!]\\s*";
   private static final Integer TOP_N = 50;
 
-  public static void run(Connection conn, LexiconSentiment lexer, String[] args) throws IOException, TimeoutException {
+  public static void run(int index, Connection conn, LexiconSentiment lexer, String[] args) throws IOException, TimeoutException {
     var replacements = new ArrayList<Replacement>();
     for (int i = 0; i < args.length - 1; i++) {
       replacements.add(new Replacement(
@@ -77,17 +77,17 @@ public class Worker {
           props,
           mapper.writeValueAsBytes(paragraphStatistics)
         );
-        System.out.printf("Task %s was processed by Worker (thread = %s)\n", task.id(), Thread.currentThread().getName());
+        System.out.printf("Task %s was processed by Worker %s (thread = %s)\n", task.id(), index, Thread.currentThread().getName());
         ch.basicAck(delivery.getEnvelope().getDeliveryTag(), false);
       } catch (IOException e) {
-        System.out.printf("Failed to process task %s by %s\n", task.id(), Thread.currentThread().getName());
+        System.out.printf("Failed to process task %s by %s (thread = %s)\n", task.id(), index, Thread.currentThread().getName());
         ch.basicNack(delivery.getEnvelope().getDeliveryTag(), false, true);
         throw new RuntimeException(e);
       }
     };
 
     ch.basicConsume(QUEUE, false, deliverCallback, consumerTag -> {});
-    System.out.printf("Worker %s is waiting for messages...\n", Thread.currentThread().getName());
+    System.out.printf("Worker %s is waiting for messages...\n", index);
   }
 
   @NotNull
