@@ -1,5 +1,3 @@
-import com.rabbitmq.client.ConnectionFactory;
-
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -19,7 +17,7 @@ public class Splitter {
   private static final Pattern SENTENCE_END = Pattern.compile(SENTENCE_END_REGEX);
   private static final Integer SENTENCES_IN_ONE_BLOCK = 1000;
 
-  public static Set<Long> split(String filename, ExecutorService pool, ConnectionFactory factory) throws Exception {
+  public static Set<Long> split(String filename, ExecutorService pool) throws Exception {
     boolean previousSentenceUnfinished = false;
     ArrayList<String> sentences = new ArrayList<>();
     List<CompletableFuture<Long>> futures = new ArrayList<>();
@@ -56,7 +54,7 @@ public class Splitter {
               var finalSentences = new ArrayList<>(sentences);
               futures.add(CompletableFuture.supplyAsync(() -> {
                 try {
-                  return Producer.submit(String.join("", finalSentences), factory);
+                  return Producer.submit(String.join("", finalSentences));
                 } catch (Exception e) {
                   throw new RuntimeException(e);
                 }
@@ -75,7 +73,7 @@ public class Splitter {
       throw new RuntimeException(e);
     }
     Set<Long> taskIds = new HashSet<>(futures.stream().map(CompletableFuture::join).toList());
-    taskIds.add(Producer.submit(String.join(" ", sentences), factory));
+    taskIds.add(Producer.submit(String.join(" ", sentences)));
     sentences.clear();
 
     return taskIds;

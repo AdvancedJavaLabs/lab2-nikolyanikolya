@@ -1,7 +1,6 @@
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rabbitmq.client.Channel;
 import com.rabbitmq.client.Connection;
-import com.rabbitmq.client.ConnectionFactory;
 import com.rabbitmq.client.DeliverCallback;
 
 import java.io.IOException;
@@ -9,6 +8,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -28,14 +28,22 @@ public class Aggregator {
     ch.queueDeclare(AGGREGATOR_QUEUE, true, false, false, null);
     ch.queueBind(AGGREGATOR_QUEUE, AGGREGATOR_EXCHANGE, AGGREGATOR_ROUTING_KEY);
 
+    var lock = new ReentrantLock();
     var statistics = new AtomicReference<TextStatistics>();
+    ch.basicQos(1);
 
     System.out.println("Aggregator is waiting for messages...");
     DeliverCallback deliverCallback = (consumerTag, delivery) -> {
       String body = new String(delivery.getBody(), StandardCharsets.UTF_8);
       var paragraphStatistics = mapper.readValue(body, ParagraphStatistics.class);
       try {
-        statistics.set(merge(statistics.get(), paragraphStatistics));
+        try {
+          lock.lock();
+          statistics.set(merge(statistics.get(), paragraphStatistics));
+        } finally {
+          lock.unlock();
+        }
+
         tasksToWait.remove(paragraphStatistics.taskId());
         ch.basicAck(delivery.getEnvelope().getDeliveryTag(), false);
         if (tasksToWait.isEmpty()) {

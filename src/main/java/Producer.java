@@ -3,6 +3,7 @@ import com.rabbitmq.client.AMQP;
 import com.rabbitmq.client.Channel;
 import com.rabbitmq.client.Connection;
 import com.rabbitmq.client.ConnectionFactory;
+
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -12,7 +13,9 @@ public class Producer {
   private static final AtomicLong taskIdGenerator = new AtomicLong(0);
   private static final ObjectMapper mapper = new ObjectMapper();
 
-  public static Long submit(String block, ConnectionFactory factory) throws Exception {
+  public static Long submit(String block) throws Exception {
+    var configProvider = new MqConfigProvider();
+    ConnectionFactory factory = configProvider.connectionFactory();
     try (Connection conn = factory.newConnection();
          Channel ch = conn.createChannel()) {
 

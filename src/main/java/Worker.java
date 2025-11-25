@@ -1,10 +1,16 @@
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.rabbitmq.client.*;
+import com.rabbitmq.client.AMQP;
+import com.rabbitmq.client.Channel;
+import com.rabbitmq.client.Connection;
+import com.rabbitmq.client.DeliverCallback;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.List;
 import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 
@@ -34,6 +40,7 @@ public class Worker {
     ch.queueBind(QUEUE, EXCHANGE, ROUTING_KEY);
 
     ch.exchangeDeclare(AGGREGATOR_EXCHANGE, "direct", true);
+    ch.basicQos(12, false);
 
     DeliverCallback deliverCallback = (consumerTag, delivery) -> {
       String body = new String(delivery.getBody(), StandardCharsets.UTF_8);

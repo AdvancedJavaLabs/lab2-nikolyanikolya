@@ -3,9 +3,6 @@ import com.rabbitmq.client.ConnectionFactory;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Path;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -41,11 +38,12 @@ public class Main {
         throw new RuntimeException(ex);
       }
       pool.shutdown();
-      // System.exit(0);
     });
 
-    Set<Long> taskIds = Splitter.split(fileName, pool, factory);
-    Worker.run(workersConnection, lexer, args);
+    Set<Long> taskIds = Splitter.split(fileName, pool);
+    for (int i = 0; i < N; i++) {
+      Worker.run(workersConnection, lexer, args);
+    }
     Aggregator.aggregate(aggregatorConnection, taskIds);
 
     while (aggregatorConnection.isOpen()) {}
